@@ -1,0 +1,10 @@
+requests
+beautifulsoup4
+pandas
+python-dotenv
+thefuzz
+llama-cpp-python
+huggingface-hub
+fastapi
+uvicorn
+python-multipart

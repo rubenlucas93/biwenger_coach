@@ -8,10 +8,11 @@ __pycache__/
 venv/
 .venv/
 
-# Large Model Data (approx 5GB - Do not upload)
+# large Model Data (approx 5GB - Do not upload)
 models/
 *.gguf
 
-# Project specific
-inspect_api.py
-.env.example
+# Android App
+frontend/node_modules/
+frontend/.expo/
+frontend/dist/

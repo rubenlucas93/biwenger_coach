@@ -51,14 +51,13 @@ class BiwengerClient {
             this.headers["X-League"] = String(this.leagueId);
             this.headers["Authorization"] = `Bearer ${this.token}`;
 
-            // RESTORED COMPREHENSIVE FIELDS (Essential for names!)
+            // ESSENTIAL: Includes 'name' in players(*) fields
             const fields = "*,players(*,fitness,team,owner,status,positions,priceIncrement,name),nextRounds(*),team(*),league(*,points,teams)";
             const res = await axios.get(`${this.baseUrl}/user?fields=${fields}`, { headers: this.headers });
             const userData = res.data.data || {};
             const userPlayerIds = new Set((userData.players || []).map(p => p.id));
             const compSlug = userData.league?.competition || "la-liga";
 
-            // Competition data for team/rival mapping
             const compUrl = `${this.baseUrl}/competitions/${compSlug}/data?score=2`;
             const compRes = await axios.get(compUrl, { headers: this.headers });
             const compData = compRes.data.data || {};
@@ -96,7 +95,6 @@ class BiwengerClient {
                 if (userPlayerIds.has(pid)) {
                     const tid = String(p.teamID || p.team);
                     const matchInfo = teamRivals[tid] || { rival: "Unknown", rivalId: null, location: "Unknown" };
-                    
                     const fitness = p.fitness || [];
                     const num_f = fitness.filter(f => typeof f === 'number');
 

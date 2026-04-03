@@ -1,0 +1,17 @@
+# Environment variables (Secrets - NEVER UPLOAD)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+
+# Large Model Data (approx 5GB - Do not upload)
+models/
+*.gguf
+
+# Project specific
+inspect_api.py
+.env.example

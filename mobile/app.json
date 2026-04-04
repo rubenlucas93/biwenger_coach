@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "Biwenger Optimizer",
+    "slug": "biwenger-optimizer-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.rubenzaragoza.biwengeroptimizer"
+    },
+    "android": {
+      "package": "com.rubenzaragoza.biwengeroptimizer"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "f90d8c61-747e-49b6-a564-bbae10cce103"
+      }
+    }
+  }
+}

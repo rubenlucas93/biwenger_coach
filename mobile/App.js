@@ -24,38 +24,15 @@ import BiwengerClient from './src/logic/BiwengerClient';
 import FutbolFantasyScraper from './src/logic/FFScraper';
 import LineupOptimizer from './src/logic/Optimizer';
 import { translations } from './src/logic/Translations';
-import { getLogoUrl } from './src/logic/LogoHelper';
 
 const Stack = createStackNavigator();
 const theme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, primary: '#1a5c1a', secondary: '#fbc02d' } };
 
-// surive refresh
 let SAVED_AUTH = null;
-
 const AppContext = createContext();
 const useApp = () => useContext(AppContext);
 
 // --- COMPONENTS ---
-
-const LogoImage = ({ rivalName }) => {
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(false);
-    const url = getLogoUrl(rivalName);
-    
-    return (
-        <View style={styles.rivalLogoContainer}>
-            {loading && <ActivityIndicator size="small" style={{position: 'absolute'}} />}
-            <Image 
-                source={{ uri: url }} 
-                style={[styles.rivalLogo, {opacity: loading ? 0 : 1}]} 
-                onLoad={() => setLoading(false)}
-                onError={() => { setLoading(false); setError(true); }}
-                resizeMode="contain"
-            />
-            {error && <Text style={{fontSize: 10, fontWeight: 'bold'}}>{(rivalName || "?")[0]}</Text>}
-        </View>
-    );
-};
 
 const PlayerRow = ({ player, index }) => {
     const { t, fontSize } = useApp();
@@ -98,15 +75,10 @@ function LoginScreen({ navigation }) {
     try {
         const client = new BiwengerClient();
         const auth = await client.login(email, password);
-        if (auth) {
-            SAVED_AUTH = auth;
-            navigation.replace('Dashboard', { auth });
-        } else alert(t('login_failed'));
-    } catch (e) {
-        alert("Error: " + e.message);
-    } finally {
-        setLoading(false);
-    }
+        if (auth) { SAVED_AUTH = auth; navigation.replace('Dashboard', { auth }); }
+        else alert(t('login_failed'));
+    } catch (e) { alert("Error: " + e.message); }
+    finally { setLoading(false); }
   };
 
   return (
@@ -152,26 +124,27 @@ function Dashboard({ route }) {
 
   useEffect(() => { runOptimization(); }, []);
 
-  const translateMatchup = (label) => {
+  const translateMatchup = (l) => {
       const map = { 'Extreme': 'extreme', 'Hard': 'hard', 'Moderate': 'moderate', 'Easy': 'easy', 'Very Easy': 'very_easy' };
-      return t(map[label] || label.toLowerCase());
+      return t(map[l] || l.toLowerCase());
   };
 
   const renderContent = () => {
     if (!data) return <View style={styles.center}><ActivityIndicator size="large" color="#1a5c1a" /></View>;
     if (activeTab === 'safe' || activeTab === 'risk') {
         const lineupData = activeTab === 'safe' ? data.safe : data.risk;
+        const color = activeTab === 'safe' ? styles.cardHeaderSafe : styles.cardHeaderRisk;
+        const icon = activeTab === 'safe' ? '🛡️' : '🔥';
         return (
             <ScrollView style={styles.tabContent}>
                 <Card style={styles.lineupCard} elevation={2}>
-                    <View style={activeTab === 'safe' ? styles.cardHeaderSafe : styles.cardHeaderRisk}>
-                        <Text style={[styles.cardHeaderText, { fontSize: 14 + fontSize }]}>{activeTab === 'safe' ? '🛡️ SAFE' : '🔥 RISK'}: {lineupData.formation}</Text>
-                    </View>
+                    <View style={color}><Text style={[styles.cardHeaderText, { fontSize: 14 + fontSize }]}>{icon} {activeTab.toUpperCase()}: {lineupData.formation}</Text></View>
                     <Card.Content>{lineupData.lineup.map((p, i) => <PlayerRow key={i} player={p} index={i} />)}</Card.Content>
                 </Card>
             </ScrollView>
         );
     }
+
     return (
         <View style={styles.tabContent}>
             <Card style={styles.tableCard} elevation={1}>
@@ -184,26 +157,30 @@ function Dashboard({ route }) {
                             <Text style={[styles.customHeaderCell, { width: 150, textAlign: 'center', fontSize: 10 + fontSize }]}>{t('matchup')}</Text>
                         </View>
                         <ScrollView>
-                            {data.ranking.map((p, index) => (
+                            {data.ranking.map((p, index) => {
+                                const pInt = parseInt(String(p.ff_prob || "0").replace("%", ""));
+                                return (
                                 <View key={index} style={[styles.customTableRow, index % 2 === 0 ? {} : {backgroundColor: '#fafafa'}]}>
                                     <View style={{ width: 170 }}>
                                         <Text numberOfLines={1} style={[styles.rowPlayerName, { fontSize: 13 + fontSize }]}>{p.name}</Text>
                                         <Text style={[styles.rowPlayerPos, { fontSize: 9 + fontSize }]}>{p.pos_name}</Text>
                                     </View>
                                     <View style={{ width: 60, alignItems: 'center' }}>
-                                        <Text style={[styles.rowProbText, { fontSize: 13 + fontSize, color: parseInt(p.ff_prob) >= 80 ? '#2e7d32' : '#666' }]}>{p.ff_prob}</Text>
+                                        <Text style={[styles.rowProbText, { fontSize: 13 + fontSize, color: pInt >= 80 ? '#2e7d32' : '#666' }]}>{p.ff_prob}</Text>
                                     </View>
                                     <View style={{ width: 90, alignItems: 'center' }}>
                                         <Text style={[styles.rowFormText, { fontSize: 11 + fontSize }]}>{t(p.form_label.toLowerCase())}</Text>
                                     </View>
-                                    <View style={{ width: 150, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                                        <LogoImage rivalName={p.rival_name} />
+                                    <View style={{ width: 150, alignItems: 'center', justifyContent: 'center' }}>
                                         <View style={[styles.largeMatchupBadge, { backgroundColor: p.dvp_label === 'Extreme' ? '#ffebee' : '#f5f5f5' }]}>
                                             <Text style={[styles.largeMatchupText, { fontSize: 11 + fontSize }]}>{t(p.dvp_label.toLowerCase())}</Text>
                                         </View>
+                                        <Text numberOfLines={1} style={[styles.rowRivalSub, { fontSize: 9 + fontSize }]}>
+                                            {t('vs')} {p.rival_name}
+                                        </Text>
                                     </View>
                                 </View>
-                            ))}
+                            );})}
                         </ScrollView>
                     </View>
                 </ScrollView>
@@ -216,8 +193,8 @@ function Dashboard({ route }) {
     <SafeAreaView style={{flex: 1, backgroundColor: '#f4f7f4'}}>
       <Appbar.Header elevated style={{backgroundColor: '#fff'}}>
         <Appbar.Content title={t('dashboard_title')} titleStyle={{fontSize: 16 + fontSize, fontWeight: 'bold'}} />
-        <Appbar.Action icon="minus" onPress={() => setFontSize(Math.max(-2, fontSize - 1))} />
-        <Appbar.Action icon="plus" onPress={() => setFontSize(Math.min(6, fontSize + 1))} />
+        <Appbar.Action icon="minus-circle-outline" onPress={() => setFontSize(Math.max(-2, fontSize - 1))} />
+        <Appbar.Action icon="plus-circle-outline" onPress={() => setFontSize(Math.min(6, fontSize + 1))} />
         <Menu visible={menuVisible} onDismiss={() => setMenuVisible(false)} anchor={<Appbar.Action icon="translate" onPress={() => setMenuVisible(true)} />}>
           <Menu.Item onPress={() => { setLang('es'); setMenuVisible(false); }} title="Español" />
           <Menu.Item onPress={() => { setLang('en'); setMenuVisible(false); }} title="English" />
@@ -293,10 +270,9 @@ const styles = StyleSheet.create({
   rowPlayerPos: { color: '#999', fontWeight: 'bold' },
   rowProbText: { fontWeight: '900' },
   rowFormText: { color: '#555', fontWeight: '700' },
+  rowRivalSub: { color: '#888', fontWeight: '600', marginTop: 2 },
   largeMatchupBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, minWidth: 80, alignItems: 'center' },
   largeMatchupText: { fontWeight: '900', fontSize: 11 },
-  rivalLogoContainer: { width: 32, height: 32, marginRight: 8, borderRadius: 16, backgroundColor: '#f9f9f9', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
-  rivalLogo: { width: 24, height: 24 },
   customTabBar: { flexDirection: 'row', height: 75, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', paddingBottom: 15 },
   tabItem: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   tabEmoji: { fontSize: 24, opacity: 0.4 },

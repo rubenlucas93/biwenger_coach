@@ -103,11 +103,13 @@ function Dashboard({ route }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('safe');
+  const [leagueLoading, setLeagueLoading] = useState(false);
   const { t, lang, setLang, fontSize, setFontSize } = useApp();
   const [menuVisible, setMenuVisible] = useState(false);
 
-  const runOptimization = async (force = false) => {
+    const runOptimization = async (force = false) => {
     setLoading(true);
+    setLeagueLoading(true);
     try {
       const client = new BiwengerClient(auth.token, auth.user_id, auth.league_id);
       const players = await client.getPlayerData(force);
@@ -117,9 +119,82 @@ function Dashboard({ route }) {
       const enriched = optimizer.matchPlayers();
       const safe = optimizer.solve(enriched, "safe");
       const risk = optimizer.solve(enriched, "risk");
-      setData({ safe, risk, ranking: [...enriched].sort((a,b) => b.safe_score - a.safe_score) });
-    } catch (err) { alert(t('network_error')); }
-    finally { setLoading(false); }
+
+      setData({ safe, risk, ranking: [...enriched].sort((a,b) => b.safe_score - a.safe_score), leagueBoard: [] });
+      setLoading(false); // Enable UI immediately for local tabs
+
+      // Now background fetch league board
+      setTimeout(() => fetchLeagueBoard(client, ffProbs), 100);
+    } catch (err) { 
+      setLoading(false);
+      alert(t('network_error')); 
+    }
+  };
+
+  const fetchLeagueBoard = async (client, ffProbs) => {
+    try {
+      let leagueBoardData = [];
+      const leagueBoardRaw = await client.getLeagueBoard();
+      if (leagueBoardRaw && leagueBoardRaw.round && leagueBoardRaw.allPlayers) {
+          const allOptimizer = new LineupOptimizer(Object.values(leagueBoardRaw.allPlayers), ffProbs);
+          const enrichedAll = allOptimizer.matchPlayers();
+          const enrichedMap = {};
+          enrichedAll.forEach(p => enrichedMap[p.id] = p);
+
+          const standings = leagueBoardRaw.round.standings || leagueBoardRaw.round.results || [];
+          const activeGames = leagueBoardRaw.activeGames || [];
+          
+          leagueBoardData = standings.map(user => {
+              const currentPts = user.points || 0;
+              let calculatedRoundPts = 0;
+              let pendingExp = 0;
+              
+              let lineup = [];
+              if (Array.isArray(user.lineup)) lineup = user.lineup;
+              else if (user.lineup && Array.isArray(user.lineup.players)) lineup = user.lineup.players;
+              else if (Array.isArray(user.players)) lineup = user.players;
+              
+              lineup.forEach(lp => {
+                  const pid = lp.id || lp;
+                  const pObj = typeof lp === 'object' ? lp : {};
+                  const globalPlayer = enrichedMap[pid] || leagueBoardRaw.allPlayers[pid];
+                  
+                  let isPending = true;
+                  if (globalPlayer) {
+                      const teamIdStr = String(globalPlayer.team_id || globalPlayer.teamID);
+                      const game = activeGames.find(g => String(g.home?.id) === teamIdStr || String(g.away?.id) === teamIdStr);
+                      if (game && game.status && game.status !== 'preview' && game.status !== 'pending' && game.status !== 'postponed') {
+                          isPending = false;
+                          const fitness = globalPlayer.fitness || [];
+                          if (fitness.length > 0) {
+                              const lastScore = fitness[fitness.length - 1];
+                              if (typeof lastScore === 'number') calculatedRoundPts += lastScore;
+                          }
+                      }
+                  }
+                  if (pObj.played !== undefined) isPending = !pObj.played;
+                  if (isPending && enrichedMap[pid]) pendingExp += (enrichedMap[pid].expected_pts || 0);
+              });
+
+              const roundPts = user.score || user.roundPoints || calculatedRoundPts || 0;
+              return {
+                  id: user.user?.id || user.id,
+                  name: user.user?.name || user.name || "Unknown",
+                  currentPts,
+                  roundPts,
+                  pendingExp: Math.round(pendingExp * 10) / 10,
+                  totalExp: Math.round((currentPts + pendingExp) * 10) / 10
+              };
+          });
+          
+          leagueBoardData.sort((a, b) => b.totalExp - a.totalExp);
+      }
+      setData(prev => prev ? { ...prev, leagueBoard: leagueBoardData } : null);
+    } catch (err) {
+      console.log("League board background error", err);
+    } finally {
+      setLeagueLoading(false);
+    }
   };
 
   useEffect(() => { runOptimization(); }, []);
@@ -139,12 +214,113 @@ function Dashboard({ route }) {
             <ScrollView style={styles.tabContent}>
                 <Card style={styles.lineupCard} elevation={2}>
                     <View style={color}><Text style={[styles.cardHeaderText, { fontSize: 14 + fontSize }]}>{icon} {activeTab.toUpperCase()}: {lineupData.formation}</Text></View>
+                    <View style={styles.pointsSummary}>
+                        <View style={styles.pointItem}>
+                            <Text style={styles.pointLabel}>{t('worst')}</Text>
+                            <Text style={styles.pointValue}>{lineupData.worst}</Text>
+                        </View>
+                        <Divider style={{ width: 1, height: '100%' }} />
+                        <View style={styles.pointItem}>
+                            <Text style={styles.pointLabel}>{t('expected')}</Text>
+                            <Text style={[styles.pointValue, { color: '#1a5c1a' }]}>{lineupData.expected}</Text>
+                        </View>
+                        <Divider style={{ width: 1, height: '100%' }} />
+                        <View style={styles.pointItem}>
+                            <Text style={styles.pointLabel}>{t('best')}</Text>
+                            <Text style={styles.pointValue}>{lineupData.best}</Text>
+                        </View>
+                    </View>
                     <Card.Content>{lineupData.lineup.map((p, i) => <PlayerRow key={i} player={p} index={i} />)}</Card.Content>
                 </Card>
             </ScrollView>
         );
     }
 
+    if (activeTab === 'league') {
+        if (leagueLoading) return <View style={styles.center}><ActivityIndicator size="large" color="#1a5c1a" /></View>;
+        return (
+            <View style={styles.tabContent}>
+                <Card style={styles.tableCard} elevation={1}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                        <View style={{paddingBottom: 10, minWidth: 380}}>
+                            <View style={styles.customTableHeader}>
+                                <Text style={[styles.customHeaderCell, { width: 140, fontSize: 10 + fontSize }]}>{t('manager')}</Text>
+                                <Text style={[styles.customHeaderCell, { width: 60, textAlign: 'center', fontSize: 10 + fontSize }]}>{t('current_pts')}</Text>
+                                <Text style={[styles.customHeaderCell, { width: 60, textAlign: 'center', fontSize: 10 + fontSize }]}>{t('round_pts')}</Text>
+                                <Text style={[styles.customHeaderCell, { width: 100, textAlign: 'center', fontSize: 10 + fontSize }]}>{t('pending_exp')}</Text>
+                                <Text style={[styles.customHeaderCell, { width: 70, textAlign: 'center', fontSize: 10 + fontSize }]}>{t('total_exp')}</Text>
+                            </View>
+                            <ScrollView>
+                                {(data.leagueBoard || []).map((user, index) => (
+                                    <View key={user.id || index} style={[styles.customTableRow, index % 2 === 0 ? {} : {backgroundColor: '#fafafa'}]}>
+                                        <View style={{ width: 140 }}>
+                                            <Text numberOfLines={1} style={[styles.rowPlayerName, { fontSize: 13 + fontSize }]}>{index + 1}. {user.name}</Text>
+                                        </View>
+                                        <View style={{ width: 60, alignItems: 'center' }}>
+                                            <Text style={[styles.rowProbText, { fontSize: 13 + fontSize, color: '#333' }]}>{user.currentPts}</Text>
+                                        </View>
+                                        <View style={{ width: 60, alignItems: 'center' }}>
+                                            <Text style={[styles.rowProbText, { fontSize: 13 + fontSize, color: '#1a5c1a' }]}>{user.roundPts > 0 ? `+${user.roundPts}` : user.roundPts}</Text>
+                                        </View>
+                                        <View style={{ width: 100, alignItems: 'center' }}>
+                                            <Text style={[styles.rowProbText, { fontSize: 13 + fontSize, color: '#666' }]}>{user.pendingExp > 0 ? `+${user.pendingExp}` : '-'}</Text>
+                                        </View>
+                                        <View style={{ width: 70, alignItems: 'center' }}>
+                                            <Text style={[styles.rowProbText, { fontSize: 14 + fontSize, color: '#1a5c1a' }]}>{user.totalExp}</Text>
+                                        </View>
+                                    </View>
+                                ))}
+                                {(!data.leagueBoard || data.leagueBoard.length === 0) && (
+                                    <View style={{padding: 20, alignItems: 'center'}}>
+                                        <Text style={{color: '#999', fontSize: 12 + fontSize}}>{t('no_lineup')}</Text>
+                                    </View>
+                                )}
+                            </ScrollView>
+                        </View>
+                    </ScrollView>
+                </Card>
+            </View>
+        );
+    }
+
+        if (activeTab === 'projection') {
+        const sortedProj = [...data.ranking].sort((a,b) => b.projected_pts - a.projected_pts);
+        return (
+            <View style={styles.tabContent}>
+                <Card style={styles.tableCard} elevation={1}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                        <View style={{paddingBottom: 10, minWidth: 360}}>
+                            <View style={styles.customTableHeader}>
+                                <Text style={[styles.customHeaderCell, { width: 140, fontSize: 10 + fontSize }]}>{t('player')}</Text>
+                                <Text style={[styles.customHeaderCell, { width: 70, textAlign: 'center', fontSize: 10 + fontSize }]}>{t('current_pts')}</Text>
+                                <Text style={[styles.customHeaderCell, { width: 70, textAlign: 'center', fontSize: 10 + fontSize }]}>{t('recent_avg')}</Text>
+                                <Text style={[styles.customHeaderCell, { width: 80, textAlign: 'center', fontSize: 10 + fontSize }]}>{t('projected_pts')}</Text>
+                            </View>
+                            <ScrollView>
+                                {sortedProj.map((p, index) => (
+                                    <View key={index} style={[styles.customTableRow, index % 2 === 0 ? {} : {backgroundColor: '#fafafa'}]}>
+                                        <View style={{ width: 140 }}>
+                                            <Text numberOfLines={1} style={[styles.rowPlayerName, { fontSize: 13 + fontSize }]}>{index + 1}. {p.name}</Text>
+                                            <Text style={[styles.rowPlayerPos, { fontSize: 9 + fontSize }]}>{p.pos_name}</Text>
+                                        </View>
+                                        <View style={{ width: 70, alignItems: 'center' }}>
+                                            <Text style={[styles.rowProbText, { fontSize: 13 + fontSize, color: '#333' }]}>{p.current_pts}</Text>
+                                        </View>
+                                        <View style={{ width: 70, alignItems: 'center' }}>
+                                            <Text style={[styles.rowProbText, { fontSize: 13 + fontSize, color: '#666' }]}>{p.last5_avg}</Text>
+                                        </View>
+                                        <View style={{ width: 80, alignItems: 'center' }}>
+                                            <Text style={[styles.rowProbText, { fontSize: 14 + fontSize, color: '#1a5c1a' }]}>{p.projected_pts}</Text>
+                                        </View>
+                                    </View>
+                                ))}
+                            </ScrollView>
+                        </View>
+                    </ScrollView>
+                </Card>
+            </View>
+        );
+    }
     return (
         <View style={styles.tabContent}>
             <Card style={styles.tableCard} elevation={1}>
@@ -153,6 +329,7 @@ function Dashboard({ route }) {
                         <View style={styles.customTableHeader}>
                             <Text style={[styles.customHeaderCell, { width: 170, fontSize: 10 + fontSize }]}>{t('player')}</Text>
                             <Text style={[styles.customHeaderCell, { width: 60, textAlign: 'center', fontSize: 10 + fontSize }]}>{t('prob')}</Text>
+                            <Text style={[styles.customHeaderCell, { width: 50, textAlign: 'center', fontSize: 10 + fontSize }]}>PTS</Text>
                             <Text style={[styles.customHeaderCell, { width: 90, textAlign: 'center', fontSize: 10 + fontSize }]}>{t('form')}</Text>
                             <Text style={[styles.customHeaderCell, { width: 150, textAlign: 'center', fontSize: 10 + fontSize }]}>{t('matchup')}</Text>
                         </View>
@@ -167,6 +344,9 @@ function Dashboard({ route }) {
                                     </View>
                                     <View style={{ width: 60, alignItems: 'center' }}>
                                         <Text style={[styles.rowProbText, { fontSize: 13 + fontSize, color: pInt >= 80 ? '#2e7d32' : '#666' }]}>{p.ff_prob}</Text>
+                                    </View>
+                                    <View style={{ width: 50, alignItems: 'center' }}>
+                                        <Text style={[styles.rowProbText, { fontSize: 13 + fontSize, color: '#1a5c1a' }]}>{p.expected_pts}</Text>
                                     </View>
                                     <View style={{ width: 90, alignItems: 'center' }}>
                                         <Text style={[styles.rowFormText, { fontSize: 11 + fontSize }]}>{t(p.form_label.toLowerCase())}</Text>
@@ -217,6 +397,14 @@ function Dashboard({ route }) {
             <Text style={[styles.tabEmoji, activeTab === 'scorecard' ? styles.activeTab : {}]}>📊</Text>
             <Text style={[styles.tabLabel, activeTab === 'scorecard' ? styles.activeLabel : {}]}>Stats</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('league')}>
+            <Text style={[styles.tabEmoji, activeTab === 'league' ? styles.activeTab : {}]}>🏆</Text>
+            <Text style={[styles.tabLabel, activeTab === 'league' ? styles.activeLabel : {}]}>Liga</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('projection')}>
+            <Text style={[styles.tabEmoji, activeTab === 'projection' ? styles.activeTab : {}]}>🔮</Text>
+            <Text style={[styles.tabLabel, activeTab === 'projection' ? styles.activeLabel : {}]}>{t('projection')}</Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -255,6 +443,10 @@ const styles = StyleSheet.create({
   cardHeaderSafe: { backgroundColor: '#e8f5e9', padding: 12, borderBottomWidth: 1, borderBottomColor: '#c8e6c9' },
   cardHeaderRisk: { backgroundColor: '#fff1f0', padding: 12, borderBottomWidth: 1, borderBottomColor: '#ffccc7' },
   cardHeaderText: { fontWeight: '800', color: '#333' },
+  pointsSummary: { flexDirection: 'row', backgroundColor: '#fcfcfc', borderBottomWidth: 1, borderBottomColor: '#f0f0f0', paddingVertical: 10 },
+  pointItem: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  pointLabel: { fontSize: 10, fontWeight: '700', color: '#999', textTransform: 'uppercase' },
+  pointValue: { fontSize: 18, fontWeight: '900', color: '#444' },
   listItem: { paddingVertical: 8, borderBottomWidth: 0.5, borderBottomColor: '#f0f0f0' },
   listTitle: { fontWeight: '700' },
   posContainer: { width: 35, height: 35, justifyContent: 'center', alignItems: 'center' },

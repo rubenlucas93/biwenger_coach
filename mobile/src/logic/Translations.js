@@ -32,7 +32,19 @@ export const translations = {
         hard: "Difícil",
         moderate: "Moderado",
         easy: "Fácil",
-        very_easy: "Muy Fácil"
+        very_easy: "Muy Fácil",
+        expected: "Esperados",
+        best: "Techo",
+        worst: "Suelo",
+        league_board: "LIGA DIRECTO",
+        manager: "MÁNAGER",
+        current_pts: "PUNTOS",
+        round_pts: "JORNADA",
+        pending_exp: "PENDIENTES (ESP)",
+        total_exp: "TOTAL ESP",
+        projection: "PROYECCIÓN",
+        recent_avg: "MEDIA RECIENTE",
+        projected_pts: "PROYECTADOS"
     },
     en: {
         login_title: "BIWENGER EXPERT",
@@ -67,6 +79,18 @@ export const translations = {
         hard: "Hard",
         moderate: "Moderate",
         easy: "Easy",
-        very_easy: "Very Easy"
+        very_easy: "Very Easy",
+        expected: "Expected",
+        best: "Ceiling",
+        worst: "Floor",
+        league_board: "LIVE LEAGUE",
+        manager: "MANAGER",
+        current_pts: "POINTS",
+        round_pts: "ROUND",
+        pending_exp: "PENDING (EXP)",
+        total_exp: "TOTAL EXP",
+        projection: "PROJECTION",
+        recent_avg: "RECENT AVG",
+        projected_pts: "PROJECTED PTS"
     }
 };
